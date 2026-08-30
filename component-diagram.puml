@@ -1,0 +1,123 @@
+@startuml archkata-component-diagram
+
+title Диаграмма компонентов: Аналитическая платформа (NL → SQL → Отчёты)
+
+' ============================================================
+'  Внешние информационные системы
+' ============================================================
+package "Внешние информационные системы" as External {
+    component "LLM Provider\n(OpenAI / Anthropic / иной)"  as LLM_PROVIDER <<external_system>>
+    component "MWS Track Rails\n(логистика / трекинг)"     as MWS         <<external_system>>
+    component "CRM-система"                                 as CRM         <<external_system>>
+    component "RBAC Service\n(ролевая модель доступа)"     as RBAC        <<external_system>>
+}
+
+' ============================================================
+'  Инфраструктура и хранилища
+' ============================================================
+package "Инфраструктура" as Infra {
+    database "Redis (NoSQL)\nкэш запросов / сессии" as REDIS <<cache>>
+}
+
+package "Хранилище данных" as DWH_Pkg {
+    database "DWH\n(корпоративное хранилище)" as DWH
+    component "Metadata Repository\n(схемы, таблицы, метрики)" as META
+}
+
+' ============================================================
+'  Сервисы платформы
+' ============================================================
+package "Сервисы аналитической платформы" as Platform {
+
+    component "Frontend Service\n(дашборды, UI)"     as FRONTEND    <<frontend>>
+    component "Reporting Service\n(генерация отчётов)" as REPORTS   <<service>>
+    component "Core Service\n(NL→SQL оркестратор)"   as CORE        <<service>>
+    component "LLM Adapter\n(обёртка над LLM API)"  as LLM_ADAPTER <<adapter>>
+    component "NLP Service\n(fallback без LLM)"     as NLP          <<service>>
+}
+
+' ============================================================
+'  Интерфейсы
+' ============================================================
+interface "IQueryAPI\n(NL-запросы)"          as IQueryAPI
+interface "IReportsAPI\n(отчёты / выгрузки)" as IReportsAPI
+interface "INLProcessor\n(NL → план)"        as INLProc
+interface "IDBClient\n(SQL / метаданные)"    as IDBClient
+interface "IExternalGateway\n(MWS, CRM)"     as IExt
+interface "IRBACClient\n(роли / разрешения)"  as IRBAC
+interface "ICache\n(кэш запросов)"           as ICache
+
+' ============================================================
+'  Привязка компонентов к интерфейсам
+' ============================================================
+FRONTEND  -up-  IQueryAPI
+FRONTEND  -down- IReportsAPI
+FRONTEND  -right- IRBAC
+
+REPORTS   -up-   IReportsAPI
+REPORTS   -right- IQueryAPI : "данные для отчётов"
+REPORTS   -left- IRBAC
+
+CORE      -up-   IQueryAPI
+CORE      -left- INLProc
+CORE      -down- IDBClient
+CORE      -right- IExt
+CORE      -down- ICache
+CORE      -left- IRBAC
+
+LLM_ADAPTER -up- INLProc
+NLP         -down- INLProc
+
+' ============================================================
+'  Реализация интерфейсов (зависимости компонентов)
+' ============================================================
+LLM_ADAPTER ..> LLM_PROVIDER : "HTTPS / API"
+NLP          ..> META        : "правила / словари"
+
+CORE  ..> META   : "чтение схемы/метаданных"
+CORE  ..> DWH    : "выполнение SQL"
+CORE  ..> MWS    : "HTTP / интеграция"
+CORE  ..> CRM    : "HTTP / интеграция"
+CORE  ..> REDIS  : "GET / SET кэш NL→SQL"
+CORE  ..> RBAC   : "проверка доступа к данным"
+
+REPORTS ..> CORE   : "агрегированные данные"
+REPORTS ..> DWH    : "выгрузки / витрины"
+REPORTS ..> REDIS  : "кэш отчётов"
+REPORTS ..> RBAC   : "фильтрация по роли"
+
+FRONTEND ..> RBAC : "аутентификация / авторизация"
+
+' ============================================================
+'  Fallback: LLM → NLP при недоступности
+' ============================================================
+LLM_PROVIDER ..> LLM_ADAPTER : "timeout / 5xx" #red
+note right of NLP
+  Активируется, когда
+  LLM Provider недоступен
+  (circuit breaker по error-rate)
+end note
+
+' ============================================================
+'  Основные потоки данных
+' ============================================================
+FRONTEND --> REPORTS    : "запрос отчёта"
+FRONTEND --> CORE       : "NL-запрос пользователя"
+CORE     --> LLM_ADAPTER : "промпт + контекст (primary)"
+LLM_ADAPTER --> CORE    : "структурированный SQL / план"
+CORE     --> NLP        : "fallback NL→SQL"
+NLP      --> CORE       : "правило-ориентированный план"
+CORE     --> FRONTEND   : "результат выборки / ошибка"
+
+' ============================================================
+'  Легенда
+' ============================================================
+legend right
+    | Тип | Стиль |
+    |<#LightBlue>| Внутренний сервис |
+    |<#LightGray>| Внешняя ИС |
+    |<#LightYellow>| Хранилище / инфраструктура |
+    |<#Orange>| Fallback-путь |
+endlegend
+
+@enduml

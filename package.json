@@ -1,0 +1,21 @@
+{
+  "name": "archkata-slides",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Slidev-презентация по архитектурным решениям аналитической платформы NL → SQL → Отчёты",
+  "scripts": {
+    "dev": "slidev --open",
+    "start": "slidev",
+    "build": "slidev build",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "latest",
+    "@slidev/theme-default": "latest",
+    "vue": "^3.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
